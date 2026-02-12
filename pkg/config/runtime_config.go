@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"github.com/pkg/errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -90,7 +91,7 @@ func (c *RuntimeConfig) BindFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&c.LeaderElectionNamespace, flagLeaderElectionNamespace, defaultLeaderElectionNamespace,
 		"Name of the leader election ID to use for this controller")
 	fs.StringVar(&c.WatchNamespace, flagWatchNamespace, defaultWatchNamespace,
-		"Namespace the controller watches for updates to Kubernetes objects, If empty, all namespaces are watched.")
+		"Comma-separated list of namespaces the controller watches for updates to Kubernetes objects. If empty, all namespaces are watched.")
 	fs.DurationVar(&c.SyncPeriod, flagSyncPeriod, defaultSyncPeriod,
 		"Period at which the controller forces the repopulation of its local object stores.")
 	fs.StringVar(&c.WebhookCertDir, flagWebhookCertDir, defaultWebhookCertDir, "WebhookCertDir is the directory that contains the webhook server key and certificate.")
@@ -184,10 +185,32 @@ func BuildRuntimeOptions(rtCfg RuntimeConfig, scheme *runtime.Scheme) (ctrl.Opti
 	// cannot set DefaultNamespaces = corev1.NamespaceAll
 	// https://github.com/kubernetes-sigs/controller-runtime/issues/2628
 	if rtCfg.WatchNamespace != corev1.NamespaceAll {
-		opt.Cache.DefaultNamespaces = map[string]cache.Config{
-			rtCfg.WatchNamespace: {},
+		namespaces := ParseWatchNamespaces(rtCfg.WatchNamespace)
+		opt.Cache.DefaultNamespaces = make(map[string]cache.Config, len(namespaces))
+		for _, ns := range namespaces {
+			opt.Cache.DefaultNamespaces[ns] = cache.Config{}
 		}
 	}
 
 	return opt, nil
+}
+
+// ParseWatchNamespaces splits a comma-separated namespace string into
+// a deduplicated slice of trimmed, non-empty namespace names.
+func ParseWatchNamespaces(watchNamespace string) []string {
+	parts := strings.Split(watchNamespace, ",")
+	seen := make(map[string]struct{}, len(parts))
+	namespaces := make([]string, 0, len(parts))
+	for _, ns := range parts {
+		ns = strings.TrimSpace(ns)
+		if ns == "" {
+			continue
+		}
+		if _, exists := seen[ns]; exists {
+			continue
+		}
+		seen[ns] = struct{}{}
+		namespaces = append(namespaces, ns)
+	}
+	return namespaces
 }

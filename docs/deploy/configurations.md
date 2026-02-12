@@ -45,7 +45,7 @@ spec:
 If the ingress class is not specified, the controller will reconcile Ingress objects without the ingress class specified or ingress class `alb`.
 
 ### Limiting Namespaces
-Setting the `--watch-namespace` argument constrains the controller's scope to a single namespace. Ingress events outside of the namespace specified are not be seen by the controller.
+Setting the `--watch-namespace` argument constrains the controller's scope to specific namespaces. Ingress events outside of the namespace(s) specified are not be seen by the controller.
 
 An example of the container spec, for a controller watching only the `default` namespace, is as follows.
 
@@ -56,8 +56,14 @@ spec:
     - --watch-namespace=default
 ```
 
-!!!note ""
-Currently, you can set only 1 namespace to watch in this flag. See [this Kubernetes issue](https://github.com/kubernetes/contrib/issues/847) for more details.
+To watch multiple namespaces, specify them as a comma-separated list:
+
+```yaml
+spec:
+  containers:
+  - args:
+    - --watch-namespace=default,kube-system
+```
 
 ## Controller command line flags
 
@@ -111,7 +117,7 @@ The --cluster-name flag is mandatory and the value must match the name of the ku
 | [lb-stabilization-monitor-interval](#lb-stabilization-monitor-interval)         | duration                        | 2m                                         | Interval at which the controller monitors the state of load balancer after creation                                                                                           
 | tolerate-non-existent-backend-service                                           | boolean                         | true                                       | Whether to allow rules which refer to backend services that do not exist (When enabled, it will return 503 error if backend service not exist)                                |
 | tolerate-non-existent-backend-action                                            | boolean                         | true                                       | Whether to allow rules which refer to backend actions that do not exist (When enabled, it will return 503 error if backend action not exist)                                  |
-| watch-namespace                                                                 | string                          |                                            | Namespace the controller watches for updates to Kubernetes objects, If empty, all namespaces are watched.                                                                     |
+| watch-namespace                                                                 | string                          |                                            | Comma-separated list of namespaces the controller watches for updates to Kubernetes objects. If empty, all namespaces are watched.                                             |
 | webhook-bind-port                                                               | int                             | 9443                                       | The TCP port the Webhook server binds to                                                                                                                                      |
 | webhook-cert-dir                                                                | string                          | /tmp/k8s-webhook-server/serving-certs      | The directory that contains the server key and certificate                                                                                                                    |
 | webhook-cert-file                                                               | string                          | tls.crt                                    | The server certificate name                                                                                                                                                   |

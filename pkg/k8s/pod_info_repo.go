@@ -3,6 +3,10 @@ package k8s
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -10,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"time"
 )
 
 const (
@@ -29,20 +32,39 @@ type PodInfoRepo interface {
 }
 
 // NewDefaultPodInfoRepo constructs new defaultPodInfoRepo.
-// * watchNamespace is the namespace to monitor pod spec.
+// * watchNamespace is the namespace(s) to monitor pod spec, comma-separated.
 //   - if watchNamespace is "", this repo monitors pods in all namespaces
-//   - if watchNamespace is not "", this repo monitors pods in specific namespace
+//   - if watchNamespace contains a single namespace, this repo monitors pods in that namespace
+//   - if watchNamespace contains comma-separated namespaces, this repo monitors pods in each namespace
 func NewDefaultPodInfoRepo(getter cache.Getter, watchNamespace string, quicServerIDVariableName string, logger logr.Logger) *defaultPodInfoRepo {
 	converter := newPodInfoBuilder(quicServerIDVariableName)
 
 	store := NewConversionStore(converter.podInfoConverter, podInfoKeyFunc)
-	lw := cache.NewListWatchFromClient(getter, resourceTypePods, watchNamespace, fields.Everything())
-	rt := cache.NewReflector(lw, &corev1.Pod{}, store, 0)
+
+	var reflectors []*cache.Reflector
+	if watchNamespace == "" || !strings.Contains(watchNamespace, ",") {
+		lw := cache.NewListWatchFromClient(getter, resourceTypePods, watchNamespace, fields.Everything())
+		reflectors = append(reflectors, cache.NewReflector(lw, &corev1.Pod{}, store, 0))
+	} else {
+		seen := make(map[string]struct{})
+		for _, ns := range strings.Split(watchNamespace, ",") {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				continue
+			}
+			if _, exists := seen[ns]; exists {
+				continue
+			}
+			seen[ns] = struct{}{}
+			lw := cache.NewListWatchFromClient(getter, resourceTypePods, ns, fields.Everything())
+			reflectors = append(reflectors, cache.NewReflector(lw, &corev1.Pod{}, store, 0))
+		}
+	}
 
 	repo := &defaultPodInfoRepo{
-		store:  store,
-		rt:     rt,
-		logger: logger,
+		store:      store,
+		reflectors: reflectors,
+		logger:     logger,
 	}
 	return repo
 }
@@ -52,9 +74,9 @@ var _ manager.Runnable = &defaultPodInfoRepo{}
 
 // default implementation for PodInfoRepo
 type defaultPodInfoRepo struct {
-	store  *ConversionStore
-	rt     *cache.Reflector
-	logger logr.Logger
+	store      *ConversionStore
+	reflectors []*cache.Reflector
+	logger     logr.Logger
 }
 
 // Get returns PodInfo specified with specific podKey, and whether it exists.
@@ -89,15 +111,27 @@ func (r *defaultPodInfoRepo) ListKeys(_ context.Context) []types.NamespacedName 
 // Start will start the repo.
 // It leverages ListWatch to keep pod info stored locally to be in-sync with Kubernetes.
 func (r *defaultPodInfoRepo) Start(ctx context.Context) error {
-	r.rt.Run(ctx.Done())
+	var wg sync.WaitGroup
+	for _, rt := range r.reflectors {
+		wg.Add(1)
+		go func(rt *cache.Reflector) {
+			defer wg.Done()
+			rt.Run(ctx.Done())
+		}(rt)
+	}
+	wg.Wait()
 	return nil
 }
 
 // WaitForCacheSync waits for the initial sync of pod information repository.
 func (r *defaultPodInfoRepo) WaitForCacheSync(ctx context.Context) error {
 	return wait.PollImmediateUntil(waitCacheSyncPollPeriod, func() (bool, error) {
-		lastSyncResourceVersion := r.rt.LastSyncResourceVersion()
-		return lastSyncResourceVersion != "", nil
+		for _, rt := range r.reflectors {
+			if rt.LastSyncResourceVersion() == "" {
+				return false, nil
+			}
+		}
+		return true, nil
 	}, ctx.Done())
 }
 
