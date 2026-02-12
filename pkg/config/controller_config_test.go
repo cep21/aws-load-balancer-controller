@@ -219,3 +219,75 @@ func TestControllerConfig_validateManageBackendSecurityGroupRulesConfiguration(t
 		})
 	}
 }
+
+func TestControllerConfig_validateWatchNamespaceConfiguration(t *testing.T) {
+	tests := []struct {
+		name           string
+		watchNamespace string
+		wantErr        bool
+		errMsg         string
+	}{
+		{
+			name:           "valid watch namespace with single namespace",
+			watchNamespace: "default",
+			wantErr:        false,
+		},
+		{
+			name:           "valid watch namespace with multiple namespaces",
+			watchNamespace: "ns1,ns2,ns3",
+			wantErr:        false,
+		},
+		{
+			name:           "valid watch namespace with spaces",
+			watchNamespace: "ns1, ns2, ns3",
+			wantErr:        false,
+		},
+		{
+			name:           "empty watch namespace string - should succeed (watches all namespaces)",
+			watchNamespace: "",
+			wantErr:        false,
+		},
+		{
+			name:           "watch namespace with only commas - should fail",
+			watchNamespace: ",,,",
+			wantErr:        true,
+			errMsg:         "invalid value ,,, for watch-namespace flag: must contain at least one non-empty namespace",
+		},
+		{
+			name:           "watch namespace with only whitespace - should fail",
+			watchNamespace: "   ",
+			wantErr:        true,
+			errMsg:         "invalid value     for watch-namespace flag: must contain at least one non-empty namespace",
+		},
+		{
+			name:           "watch namespace with commas and whitespace - should fail",
+			watchNamespace: ", , ,",
+			wantErr:        true,
+			errMsg:         "invalid value , , , for watch-namespace flag: must contain at least one non-empty namespace",
+		},
+		{
+			name:           "watch namespace with mixed valid and empty entries - should succeed",
+			watchNamespace: "ns1, , ns2",
+			wantErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &ControllerConfig{
+				RuntimeConfig: RuntimeConfig{
+					WatchNamespace: tt.watchNamespace,
+				},
+			}
+
+			err := cfg.validateWatchNamespaceConfiguration()
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

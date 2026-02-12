@@ -16,6 +16,11 @@ func TestParseWatchNamespaces(t *testing.T) {
 		want  []string
 	}{
 		{
+			name:  "empty string watches all",
+			input: "",
+			want:  []string{},
+		},
+		{
 			name:  "single namespace",
 			input: "default",
 			want:  []string{"default"},
