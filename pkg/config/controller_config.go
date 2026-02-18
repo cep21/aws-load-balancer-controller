@@ -238,6 +238,9 @@ func (cfg *ControllerConfig) Validate() error {
 	if err := cfg.validateManageBackendSecurityGroupRulesConfiguration(); err != nil {
 		return err
 	}
+	if err := cfg.validateWatchNamespaceConfiguration(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -300,6 +303,13 @@ func (cfg *ControllerConfig) validateBackendSecurityGroupConfiguration() error {
 func (cfg *ControllerConfig) validateManageBackendSecurityGroupRulesConfiguration() error {
 	if cfg.EnableManageBackendSecurityGroupRules && !cfg.EnableBackendSecurityGroup {
 		return errors.Errorf("backend security group must be enabled when manage backend security group rule is enabled")
+	}
+	return nil
+}
+
+func (cfg *ControllerConfig) validateWatchNamespaceConfiguration() error {
+	if cfg.RuntimeConfig.WatchNamespace != "" && len(ParseWatchNamespaces(cfg.RuntimeConfig.WatchNamespace)) == 0 {
+		return errors.Errorf("invalid value %v for %v flag: must contain at least one non-empty namespace", cfg.RuntimeConfig.WatchNamespace, flagWatchNamespace)
 	}
 	return nil
 }
